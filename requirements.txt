@@ -6,3 +6,7 @@ scikit-learn
 imbalanced-learn
 scipy
 shap
+kagglehub
+tensorflow
+pillow
+opencv-python
