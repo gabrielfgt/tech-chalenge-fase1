@@ -10,3 +10,4 @@ kagglehub
 tensorflow
 pillow
 opencv-python
+pydot
