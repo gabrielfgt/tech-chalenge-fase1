@@ -11,3 +11,5 @@ tensorflow
 pillow
 opencv-python
 pydot
+sklearn-genetic-opt
+google-genai
