@@ -11,3 +11,9 @@ tensorflow
 pillow
 opencv-python
 pydot
+sklearn-genetic-opt
+google-genai
+fastapi
+uvicorn[standard]
+streamlit
+python-dotenv
