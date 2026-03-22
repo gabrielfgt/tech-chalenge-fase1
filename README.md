@@ -1,162 +1,269 @@
-# Tech Challenge Fase 1 - IA em Saúde
+# Sistema de Predição de Risco de AVC com IA Generativa
 
-Solução com foco em Inteligência Artificial para processamento de exames médicos e documentos clínicos, utilizando Machine Learning e Visão Computacional para apoiar a tomada de decisão médica.
+> Tech Challenge Fase 1 — FIAP Especialização em Inteligência Artificial
+> **Autor:** Gabriel Francisco Gonsalves Teixeira — RM368786
 
-## Sobre o Projeto
+Sistema de apoio à decisão médica para triagem de risco de Acidente Vascular Cerebral (AVC), combinando Machine Learning otimizado por Algoritmo Genético, interpretabilidade via SHAP e laudos clínicos gerados automaticamente pelo Gemini 3 Flash.
 
-Este projeto é parte do Tech Challenge da FIAP e apresenta duas soluções principais de IA aplicadas à área da saúde:
+---
 
-1. **Triagem Preventiva de AVC (Acidente Vascular Cerebral)** - Utiliza Machine Learning para identificar padrões de risco em pacientes que podem desenvolver AVC, criando uma base para um sistema de apoio à decisão médica (CDSS - Clinical Decision Support System).
+## Visão Geral
 
-2. **Classificação de Pneumonia em Raio-X** - Utiliza Deep Learning com Redes Neurais Convolucionais (CNN) para classificar automaticamente imagens de raio-X de tórax em categorias NORMAL ou PNEUMONIA.
+O sistema recebe dados clínicos de um paciente e entrega:
 
-## Objetivos
+1. **Predição de risco** (ALTO / BAIXO) com probabilidade estimada
+2. **Explicação SHAP** dos 5 fatores mais relevantes para aquela predição
+3. **Laudo clínico em linguagem natural** gerado pelo Gemini, com perfil de risco, fatores determinantes, recomendações e aviso legal
 
-- Desenvolver modelos de Machine Learning para predição de risco de AVC
-- Criar uma CNN para classificação de imagens médicas (raio-X)
-- Avaliar a performance dos modelos usando métricas apropriadas para problemas médicos
-- Criar soluções que possam servir como base para sistemas de apoio à decisão médica
+A solução é exposta via **FastAPI** (backend) e **Streamlit** (interface web), prontos para uso local ou implantação em nuvem.
+
+---
+
+## Arquitetura
+
+```
+┌─────────────────────┐        POST /predict        ┌──────────────────────┐
+│   Streamlit UI      │ ────────────────────────>   │   FastAPI (api.py)   │
+│  localhost:8501     │ <────────────────────────   │   localhost:8000     │
+└─────────────────────┘    JSON com laudo clínico   └──────────┬───────────┘
+                                                               │
+                                              ┌────────────────┼─────────────────┐
+                                              ▼                ▼                 ▼
+                                       model.pkl          SHAP values     Gemini 3 Flash
+                                    (sklearn model)     (explicabilidade)  (laudo clínico)
+```
+
+### Pipeline de Predição
+
+```
+Dados do paciente (raw)
+        │
+        ▼
+  One-Hot Encoding        ← mesmo esquema do treino (drop_first=True)
+        │
+        ▼
+  StandardScaler          ← scaler salvo do treino
+        │
+        ▼
+  Modelo ML (predict)     ← melhor modelo selecionado pelo GA
+        │
+        ▼
+  SHAP Explainer          ← Tree / Linear / Kernel dependendo do modelo
+        │
+        ▼
+  Gemini 3 Flash          ← prompt com dados + SHAP → laudo estruturado
+        │
+        ▼
+  Resposta JSON / UI
+```
+
+---
+
+## Machine Learning
+
+### Modelos treinados
+
+| Modelo | Otimização |
+|---|---|
+| Logistic Regression | GASearchCV (Algoritmo Genético) |
+| Decision Tree | GASearchCV |
+| K-Nearest Neighbors | GASearchCV |
+| Random Forest | GASearchCV |
+| SVM | GASearchCV |
+
+O melhor modelo (por F1-Score + Recall no conjunto de teste) é selecionado automaticamente e exportado para uso na API.
+
+### Algoritmo Genético (sklearn-genetic-opt)
+
+Três experimentos com configurações distintas são executados e comparados contra o baseline GridSearchCV:
+
+| | Exp-1 Conservador | Exp-2 Balanceado | Exp-3 Exploratório |
+|---|---|---|---|
+| `population_size` | 4 | 6 | 8 |
+| `generations` | 4 | 6 | 8 |
+| `mutation_probability` | 0.10 | 0.15 | 0.25 |
+| `crossover_probability` | 0.80 | 0.80 | 0.70 |
+
+Fitness: **F1-Score** em StratifiedKFold 3-fold (escolha deliberada para hardware com recursos limitados).
+
+### Dataset
+
+- **Arquivo:** `data/healthcare-dataset-stroke-data.csv`
+- **Registros:** 5.110 casos clínicos
+- **Features:** idade, sexo, hipertensão, cardiopatia, estado civil, tipo de trabalho, tipo de residência, glicose média, IMC, tabagismo
+- **Target:** `stroke` (0 = sem AVC, 1 = com AVC)
+- **Desbalanceamento:** ~5% positivos — tratado com SMOTE no treino
+
+---
 
 ## Estrutura do Projeto
 
 ```
 tech-chalenge-fase1/
-├── README.md                          # Este arquivo
-├── requirements.txt                   # Dependências do projeto
-├── main.ipynb                         # Notebook: Triagem Preventiva de AVC
-├── cv.ipynb                           # Notebook: Classificação de Pneumonia
-└── data/
-    └── healthcare-dataset-stroke-data.csv  # Dataset de casos clínicos
+├── main.ipynb              # Notebook completo: EDA → GA → SHAP → Gemini
+├── api.py                  # Backend FastAPI
+├── streamlit_app.py        # Interface Streamlit
+├── .env                    # Variáveis de ambiente (API key)
+├── requirements.txt        # Dependências
+├── data/
+│   └── healthcare-dataset-stroke-data.csv
+└── model_artifacts/        # Gerado ao executar o notebook
+    ├── model.pkl
+    ├── scaler.pkl
+    ├── feature_columns.pkl
+    ├── X_train_sample.pkl
+    └── model_name.txt
 ```
 
-## Tecnologias Utilizadas
+---
 
-- **Python 3.11+**
-- **Machine Learning**: scikit-learn, imbalanced-learn
-- **Deep Learning**: TensorFlow, Keras
-- **Visão Computacional**: OpenCV, Pillow
-- **Análise de Dados**: pandas, numpy, matplotlib, seaborn
-- **Explicabilidade**: SHAP
-- **Dataset**: Kaggle Hub
+## Instalação e Execução
 
-## Pré-requisitos
+### Pré-requisitos
 
-- Python 3.11 ou superior
-- pip (gerenciador de pacotes Python)
-- Jupyter Notebook ou JupyterLab (recomendado)
+- Python 3.11+
+- Chave de API Google Gemini (AI Studio)
 
-## Instalação
-
-### 1. Clone o repositório
+### 1. Clone e configure o ambiente
 
 ```bash
 git clone <url-do-repositório>
 cd tech-chalenge-fase1
-```
 
-### 2. Crie um ambiente virtual (recomendado)
-
-```bash
-# No macOS/Linux
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# No Windows
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-### 3. Instale as dependências
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Instale o Jupyter (se ainda não tiver)
+### 2. Configure a chave de API
 
-```bash
-pip install jupyter jupyterlab
+Edite o arquivo `.env` na raiz do projeto:
+
+```env
+GOOGLE_API_KEY=sua_chave_aqui
+GEMINI_MODEL=models/gemini-3-flash-preview
 ```
 
-## Como Executar
-
-### Executando os Notebooks
-
-1. **Inicie o Jupyter Notebook ou JupyterLab:**
+### 3. Execute o notebook para treinar e exportar o modelo
 
 ```bash
-jupyter notebook
-# ou
-jupyter lab
+jupyter nbconvert --to notebook --execute \
+  --ExecutePreprocessor.kernel_name=python3 \
+  --ExecutePreprocessor.timeout=600 \
+  main.ipynb --output main.ipynb
 ```
 
-2. **Abra o notebook desejado:**
-   - `main.ipynb` - Para análise de triagem preventiva de AVC
-   - `cv.ipynb` - Para classificação de pneumonia em raio-X
+Ou abra manualmente no Jupyter e execute todas as células. Ao final, a pasta `model_artifacts/` será criada automaticamente.
 
-3. **Execute as células sequencialmente:**
-   - Os notebooks estão organizados em seções lógicas
-   - Execute as células na ordem apresentada
-   - Algumas células podem demorar para executar (especialmente o treinamento de modelos)
+### 4. Inicie a API (terminal 1)
 
-### Notebook: Triagem Preventiva de AVC (`main.ipynb`)
+```bash
+uvicorn api:app --reload --port 8000
+```
 
-Este notebook contém:
-- Análise exploratória de dados (EDA)
-- Pré-processamento e limpeza de dados
-- Treinamento de múltiplos modelos de classificação:
-  - Random Forest
-  - Logistic Regression
-  - SVM
-  - Decision Tree
-  - K-Nearest Neighbors
-- Avaliação de performance dos modelos
-- Análise de importância de features
+### 5. Inicie a interface Streamlit (terminal 2)
 
-**Dataset:** O dataset `healthcare-dataset-stroke-data.csv` contém 5.110 casos clínicos com informações sobre pacientes e histórico de AVC.
+```bash
+streamlit run streamlit_app.py --server.port 8501
+```
 
-### Notebook: Classificação de Pneumonia (`cv.ipynb`)
+Acesse **http://localhost:8501** no navegador.
 
-Este notebook contém:
-- Download automático do dataset de raio-X do Kaggle
-- Pré-processamento de imagens
-- Construção e treinamento de CNN
-- Uso de transfer learning (VGG16, ResNet50, MobileNetV2)
-- Avaliação com métricas médicas apropriadas
-- Análise de resultados e visualizações
+---
 
-**Dataset:** O dataset de raio-X é baixado automaticamente do Kaggle durante a execução do notebook.
+## API Reference
 
-## Datasets
+Base URL: `http://localhost:8000`
 
-### Dataset de AVC
-- **Arquivo:** `data/healthcare-dataset-stroke-data.csv`
-- **Descrição:** Contém 5.110 casos clínicos com informações demográficas, histórico médico e diagnóstico de AVC
-- **Variáveis:** idade, gênero, hipertensão, doença cardíaca, estado civil, tipo de trabalho, tipo de residência, nível de glicose, IMC, status de fumante, e diagnóstico de AVC
+### `GET /health`
 
-### Dataset de Pneumonia
-- **Fonte:** Kaggle (baixado automaticamente)
-- **Descrição:** Imagens de raio-X de tórax classificadas como NORMAL ou PNEUMONIA
-- **Download:** O dataset é baixado automaticamente ao executar o notebook `cv.ipynb`
+Verifica se o serviço está no ar e qual modelo está carregado.
 
-## Observações Importantes
+**Resposta:**
+```json
+{
+  "status": "ok",
+  "model": "Logistic Regression"
+}
+```
 
-- **Tempo de execução:** O treinamento de modelos, especialmente as CNNs, pode levar bastante tempo dependendo do hardware disponível
-- **GPU:** O projeto funciona em CPU, mas ter uma GPU acelera significativamente o treinamento das CNNs
-- **Memória:** Certifique-se de ter memória RAM suficiente (recomendado: 8GB+)
-- **Kaggle API:** Para o notebook `cv.ipynb`, pode ser necessário configurar as credenciais do Kaggle (o kagglehub tenta fazer isso automaticamente)
+### `POST /predict`
 
-## Notas
+Realiza a predição de risco de AVC para um paciente.
 
-- Este projeto é educacional e não deve ser usado para diagnóstico médico real
-- Os modelos apresentados são protótipos e requerem validação clínica adequada antes de uso em produção
-- Sempre consulte profissionais médicos para diagnósticos reais
+**Body (JSON):**
 
-## Autor
-Gabriel Francico Gonsalves Teixeira - RM368786
+| Campo | Tipo | Exemplo | Descrição |
+|---|---|---|---|
+| `age` | float | `67` | Idade em anos |
+| `hypertension` | int (0/1) | `0` | Possui hipertensão |
+| `heart_disease` | int (0/1) | `1` | Possui cardiopatia |
+| `avg_glucose_level` | float | `228.69` | Glicose média (mg/dL) |
+| `bmi` | float | `36.6` | Índice de Massa Corporal |
+| `gender` | string | `"Male"` | `Male`, `Female`, `Other` |
+| `ever_married` | string | `"Yes"` | `Yes`, `No` |
+| `work_type` | string | `"Private"` | `Private`, `Self-employed`, `Govt_job`, `children`, `Never_worked` |
+| `Residence_type` | string | `"Urban"` | `Urban`, `Rural` |
+| `smoking_status` | string | `"formerly smoked"` | `never smoked`, `formerly smoked`, `smokes`, `Unknown` |
 
-Projeto desenvolvido para o Tech Challenge FIAP - Fase 1
+**Resposta:**
+```json
+{
+  "predicao": 1,
+  "risco": "ALTO",
+  "probabilidade": 0.8341,
+  "modelo_utilizado": "Logistic Regression",
+  "shap_top5": {
+    "age": 1.8157,
+    "avg_glucose_level": 0.9203,
+    "hypertension": 0.6411,
+    "bmi": 0.3120,
+    "heart_disease": 0.2984
+  },
+  "relatorio_clinico": "**Perfil de risco**\n..."
+}
+```
+
+**Exemplo curl:**
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 67, "hypertension": 0, "heart_disease": 1,
+    "avg_glucose_level": 228.69, "bmi": 36.6,
+    "gender": "Male", "ever_married": "Yes",
+    "work_type": "Private", "Residence_type": "Urban",
+    "smoking_status": "formerly smoked"
+  }'
+```
+
+A documentação interativa completa (Swagger) está disponível em **http://localhost:8000/docs**.
+
+---
+
+## IA Generativa — Prompt Engineering
+
+O laudo clínico é gerado com a estratégia **few-shot**, que demonstra empiricamente melhor qualidade nos testes realizados no notebook. As três estratégias implementadas são:
+
+| Estratégia | Descrição |
+|---|---|
+| Zero-Shot | Instrução direta sem exemplos |
+| Chain-of-Thought | Raciocínio passo a passo (4 etapas) |
+| Few-Shot | Com exemplo demonstrativo de caso similar |
+
+A qualidade de cada interpretação é avaliada automaticamente por uma rubrica heurística de **0 a 7 pontos**, verificando: presença das 4 seções obrigatórias, contagem de palavras (150–450), uso de terminologia médica e coerência com a predição.
+
+---
+
+## Observações
+
+- Esta ferramenta é de **apoio à decisão médica** e não substitui a avaliação de um profissional de saúde habilitado
+- Os modelos foram treinados em dataset público e requerem validação clínica antes de uso em produção
+- O desempenho do Gemini depende de conectividade com a API Google e cota disponível
+
+---
 
 ## Licença
 
-Este projeto é um desafio acadêmico, para a especialização em Inteligência Artificial - FIAP
+Projeto acadêmico desenvolvido para o Tech Challenge FIAP — Especialização em Inteligência Artificial.
