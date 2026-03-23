@@ -2,10 +2,12 @@
 Streamlit — Interface para o sistema de predição de risco de AVC.
 Faz chamadas à FastAPI (api.py) e exibe o laudo clínico gerado pelo Gemini.
 """
+import os
+
 import streamlit as st
 import requests
 
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 st.set_page_config(
     page_title="Predição de Risco de AVC",

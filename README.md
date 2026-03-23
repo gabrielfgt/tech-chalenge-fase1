@@ -21,17 +21,26 @@ A solução é exposta via **FastAPI** (backend) e **Streamlit** (interface web)
 
 ## Arquitetura
 
+```mermaid
+graph TD
+    U([Usuário]) -->|HTTP :80| ALB[Application Load Balancer]
+    ALB -->|forward :8501| UI[Streamlit UI\nECS Fargate]
+    UI -->|POST /predict :8000| ALB
+    ALB -->|forward :8000| API[FastAPI\nECS Fargate]
+
+    API --> MODEL[(model_artifacts\nmodel.pkl / scaler.pkl)]
+    API --> SHAP[SHAP Explainer]
+    API --> GEMINI[Google Gemini API]
+    API --> SM[Secrets Manager\nGOOGLE_API_KEY]
+
+    ECR1[ECR — api image] -.->|pull| API
+    ECR2[ECR — ui image]  -.->|pull| UI
+
+    API --> CW1[CloudWatch Logs /api]
+    UI  --> CW2[CloudWatch Logs /ui]
 ```
-┌─────────────────────┐        POST /predict        ┌──────────────────────┐
-│   Streamlit UI      │ ────────────────────────>   │   FastAPI (api.py)   │
-│  localhost:8501     │ <────────────────────────   │   localhost:8000     │
-└─────────────────────┘    JSON com laudo clínico   └──────────┬───────────┘
-                                                               │
-                                              ┌────────────────┼─────────────────┐
-                                              ▼                ▼                 ▼
-                                       model.pkl          SHAP values     Gemini 3 Flash
-                                    (sklearn model)     (explicabilidade)  (laudo clínico)
-```
+
+### Arquitetura Local (desenvolvimento)
 
 ### Pipeline de Predição
 
@@ -103,8 +112,14 @@ tech-chalenge-fase1/
 ├── main.ipynb              # Notebook completo: EDA → GA → SHAP → Gemini
 ├── api.py                  # Backend FastAPI
 ├── streamlit_app.py        # Interface Streamlit
+├── Dockerfile              # Imagem multi-stage (api + ui)
+├── docker-compose.yml      # Sobe API + UI com um único comando
 ├── .env                    # Variáveis de ambiente (API key)
 ├── requirements.txt        # Dependências
+├── terraform/
+│   ├── main.tf             # Infraestrutura AWS (ECS, ALB, Secrets Manager)
+│   ├── variables.tf        # Variáveis Terraform
+│   └── outputs.tf          # URLs de saída
 ├── data/
 │   └── healthcare-dataset-stroke-data.csv
 └── model_artifacts/        # Gerado ao executar o notebook
@@ -113,6 +128,86 @@ tech-chalenge-fase1/
     ├── feature_columns.pkl
     ├── X_train_sample.pkl
     └── model_name.txt
+```
+
+---
+
+## Execução com Docker
+
+Sobe API + interface com um único comando (requer `model_artifacts/` gerado pelo notebook):
+
+```bash
+docker compose up --build
+```
+
+| Serviço | URL |
+|---|---|
+| Interface Streamlit | http://localhost:8501 |
+| FastAPI | http://localhost:8000 |
+| Swagger | http://localhost:8000/docs |
+
+Para encerrar: `docker compose down`
+
+---
+
+## Implantação na Nuvem (AWS ECS Fargate)
+
+O diretório `terraform/` contém toda a infraestrutura necessária para implantar o sistema na AWS usando ECS Fargate + ALB.
+
+### Pré-requisitos
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.5
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) configurado (`aws configure`)
+- Docker instalado localmente
+
+### Passo a passo
+
+**1. Construa e publique as imagens no ECR**
+
+```bash
+# Substitua <ACCOUNT_ID> e <REGION> pelos seus valores
+ACCOUNT=<ACCOUNT_ID>
+REGION=us-east-1
+
+aws ecr create-repository --repository-name avc-predictor-api --region $REGION
+aws ecr create-repository --repository-name avc-predictor-ui  --region $REGION
+
+aws ecr get-login-password --region $REGION \
+  | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com
+
+# Execute o notebook antes para gerar model_artifacts/
+docker build --target api -t $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-api:latest .
+docker build --target ui  -t $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-ui:latest  .
+
+docker push $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-api:latest
+docker push $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-ui:latest
+```
+
+**2. Provisione a infraestrutura**
+
+```bash
+cd terraform
+
+terraform init
+
+terraform apply \
+  -var="api_image=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-api:latest" \
+  -var="ui_image=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/avc-predictor-ui:latest" \
+  -var="google_api_key=<SUA_CHAVE_GEMINI>"
+```
+
+Ao final, o Terraform exibe as URLs de acesso:
+
+```
+ui_url      = "http://<alb-dns>"
+api_url     = "http://<alb-dns>:8000"
+api_docs_url= "http://<alb-dns>:8000/docs"
+```
+
+**3. Destruir os recursos**
+
+```bash
+terraform destroy
 ```
 
 ---
